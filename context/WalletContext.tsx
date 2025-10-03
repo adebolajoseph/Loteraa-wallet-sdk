@@ -1,265 +1,185 @@
 "use client"
 
-import type React from "react"
 import { createContext, useContext, useReducer, useEffect, type ReactNode } from "react"
 import { ethers } from "ethers"
 import type { TransactionResult } from "@/utils/walletUtils"
 
-export interface WalletState {
-  // Connection state
-  isConnected: boolean
+export interface SessionState {
+  isActive: boolean
   isConnecting: boolean
-  address: string | null
-  chainId: number | null
-
-  // Balance and portfolio
-  ethBalance: string
-  lotBalance: string
-  portfolioValue: string
-
-  // Provider and signer
+  account: string | null
+  chain: number | null
+  eth: string
+  lot: string
+  totalValue: string
   provider: ethers.BrowserProvider | null
   signer: ethers.JsonRpcSigner | null
-
-  // Transaction state
-  transactions: TransactionResult[]
-  pendingTransactions: string[]
-
-  // Error handling
+  txs: TransactionResult[]
+  pending: string[]
   error: string | null
-
-  // Loading states
-  isLoadingBalance: boolean
-  isSendingTransaction: boolean
+  loadingBalance: boolean
+  sending: boolean
 }
 
-export type WalletAction =
-  | { type: "SET_CONNECTING"; payload: boolean }
-  | {
-      type: "SET_CONNECTED"
-      payload: { address: string; chainId: number; provider: ethers.BrowserProvider; signer: ethers.JsonRpcSigner }
-    }
-  | { type: "SET_DISCONNECTED" }
-  | { type: "SET_BALANCE"; payload: { ethBalance: string; lotBalance: string; portfolioValue: string } }
-  | { type: "SET_LOADING_BALANCE"; payload: boolean }
-  | { type: "SET_SENDING_TRANSACTION"; payload: boolean }
-  | { type: "ADD_TRANSACTION"; payload: TransactionResult }
-  | {
-      type: "UPDATE_TRANSACTION"
-      payload: { hash: string; status: "confirmed" | "failed"; gasUsed?: string; blockNumber?: number }
-    }
-  | { type: "ADD_PENDING_TRANSACTION"; payload: string }
-  | { type: "REMOVE_PENDING_TRANSACTION"; payload: string }
-  | { type: "SET_ERROR"; payload: string | null }
-  | { type: "SET_CHAIN_ID"; payload: number }
+export type SessionAction =
+  | { type: "CONNECTING"; payload: boolean }
+  | { type: "CONNECTED"; payload: { account: string; chain: number; provider: ethers.BrowserProvider; signer: ethers.JsonRpcSigner } }
+  | { type: "DISCONNECTED" }
+  | { type: "BALANCE"; payload: { eth: string; lot: string; totalValue: string } }
+  | { type: "LOADING_BALANCE"; payload: boolean }
+  | { type: "SENDING"; payload: boolean }
+  | { type: "ADD_TX"; payload: TransactionResult }
+  | { type: "UPDATE_TX"; payload: { hash: string; status: "confirmed" | "failed"; gasUsed?: string; blockNumber?: number } }
+  | { type: "ADD_PENDING"; payload: string }
+  | { type: "REMOVE_PENDING"; payload: string }
+  | { type: "ERROR"; payload: string | null }
+  | { type: "CHAIN"; payload: number }
 
-const initialState: WalletState = {
-  isConnected: false,
+const defaultState: SessionState = {
+  isActive: false,
   isConnecting: false,
-  address: null,
-  chainId: null,
-  ethBalance: "0",
-  lotBalance: "0",
-  portfolioValue: "0",
+  account: null,
+  chain: null,
+  eth: "0",
+  lot: "0",
+  totalValue: "0",
   provider: null,
   signer: null,
-  transactions: [],
-  pendingTransactions: [],
+  txs: [],
+  pending: [],
   error: null,
-  isLoadingBalance: false,
-  isSendingTransaction: false,
+  loadingBalance: false,
+  sending: false,
 }
 
-const walletReducer = (state: WalletState, action: WalletAction): WalletState => {
+const sessionReducer = (state: SessionState, action: SessionAction): SessionState => {
   switch (action.type) {
-    case "SET_CONNECTING":
+    case "CONNECTING":
       return { ...state, isConnecting: action.payload, error: null }
-
-    case "SET_CONNECTED":
+    case "CONNECTED":
       return {
         ...state,
-        isConnected: true,
+        isActive: true,
         isConnecting: false,
-        address: action.payload.address,
-        chainId: action.payload.chainId,
+        account: action.payload.account,
+        chain: action.payload.chain,
         provider: action.payload.provider,
         signer: action.payload.signer,
         error: null,
       }
-
-    case "SET_DISCONNECTED":
-      return {
-        ...initialState,
-      }
-
-    case "SET_BALANCE":
+    case "DISCONNECTED":
+      return { ...defaultState }
+    case "BALANCE":
       return {
         ...state,
-        ethBalance: action.payload.ethBalance,
-        lotBalance: action.payload.lotBalance,
-        portfolioValue: action.payload.portfolioValue,
-        isLoadingBalance: false,
+        eth: action.payload.eth,
+        lot: action.payload.lot,
+        totalValue: action.payload.totalValue,
+        loadingBalance: false,
       }
-
-    case "SET_LOADING_BALANCE":
-      return { ...state, isLoadingBalance: action.payload }
-
-    case "SET_SENDING_TRANSACTION":
-      return { ...state, isSendingTransaction: action.payload }
-
-    case "ADD_TRANSACTION":
+    case "LOADING_BALANCE":
+      return { ...state, loadingBalance: action.payload }
+    case "SENDING":
+      return { ...state, sending: action.payload }
+    case "ADD_TX":
+      return { ...state, txs: [action.payload, ...state.txs] }
+    case "UPDATE_TX":
       return {
         ...state,
-        transactions: [action.payload, ...state.transactions],
-      }
-
-    case "UPDATE_TRANSACTION":
-      return {
-        ...state,
-        transactions: state.transactions.map((tx) =>
-          tx.hash === action.payload.hash
-            ? {
-                ...tx,
-                status: action.payload.status,
-                gasUsed: action.payload.gasUsed,
-                blockNumber: action.payload.blockNumber,
-              }
-            : tx,
+        txs: state.txs.map((t) =>
+          t.hash === action.payload.hash
+            ? { ...t, status: action.payload.status, gasUsed: action.payload.gasUsed, blockNumber: action.payload.blockNumber }
+            : t,
         ),
       }
-
-    case "ADD_PENDING_TRANSACTION":
-      return {
-        ...state,
-        pendingTransactions: [...state.pendingTransactions, action.payload],
-      }
-
-    case "REMOVE_PENDING_TRANSACTION":
-      return {
-        ...state,
-        pendingTransactions: state.pendingTransactions.filter((hash) => hash !== action.payload),
-      }
-
-    case "SET_ERROR":
+    case "ADD_PENDING":
+      return { ...state, pending: [...state.pending, action.payload] }
+    case "REMOVE_PENDING":
+      return { ...state, pending: state.pending.filter((h) => h !== action.payload) }
+    case "ERROR":
       return { ...state, error: action.payload }
-
-    case "SET_CHAIN_ID":
-      return { ...state, chainId: action.payload }
-
+    case "CHAIN":
+      return { ...state, chain: action.payload }
     default:
       return state
   }
 }
 
-export interface WalletContextType {
-  state: WalletState
-  dispatch: React.Dispatch<WalletAction>
+export interface SessionContextType {
+  state: SessionState
+  dispatch: React.Dispatch<SessionAction>
 }
 
-const WalletContext = createContext<WalletContextType | undefined>(undefined)
+const SessionContext = createContext<SessionContextType | undefined>(undefined)
 
-export interface WalletProviderProps {
+export interface SessionProviderProps {
   children: ReactNode
 }
 
-const WalletProviderComponent: React.FC<WalletProviderProps> = ({ children }) => {
-  const [state, dispatch] = useReducer(walletReducer, initialState)
+const ProviderComponent: React.FC<SessionProviderProps> = ({ children }) => {
+  const [state, dispatch] = useReducer(sessionReducer, defaultState)
 
-  // Listen for account changes
   useEffect(() => {
     if (typeof window !== "undefined" && window.ethereum) {
-      const handleAccountsChanged = (accounts: string[]) => {
+      const onAccounts = (accounts: string[]) => {
         if (accounts.length === 0) {
-          dispatch({ type: "SET_DISCONNECTED" })
-        } else if (accounts[0] !== state.address) {
-          // Account changed, reconnect
+          dispatch({ type: "DISCONNECTED" })
+        } else if (accounts[0] !== state.account) {
           window.location.reload()
         }
       }
-
-      const handleChainChanged = (chainId: string) => {
-        const newChainId = Number.parseInt(chainId, 16)
-        dispatch({ type: "SET_CHAIN_ID", payload: newChainId })
+      const onChain = (chainId: string) => {
+        dispatch({ type: "CHAIN", payload: Number.parseInt(chainId, 16) })
       }
+      const onDisconnect = () => dispatch({ type: "DISCONNECTED" })
 
-      const handleDisconnect = () => {
-        dispatch({ type: "SET_DISCONNECTED" })
-      }
-
-      window.ethereum.on("accountsChanged", handleAccountsChanged)
-      window.ethereum.on("chainChanged", handleChainChanged)
-      window.ethereum.on("disconnect", handleDisconnect)
+      window.ethereum.on("accountsChanged", onAccounts)
+      window.ethereum.on("chainChanged", onChain)
+      window.ethereum.on("disconnect", onDisconnect)
 
       return () => {
-        if (window.ethereum) {
-          window.ethereum.removeListener("accountsChanged", handleAccountsChanged)
-          window.ethereum.removeListener("chainChanged", handleChainChanged)
-          window.ethereum.removeListener("disconnect", handleDisconnect)
-        }
+        window.ethereum.removeListener("accountsChanged", onAccounts)
+        window.ethereum.removeListener("chainChanged", onChain)
+        window.ethereum.removeListener("disconnect", onDisconnect)
       }
     }
-  }, [state.address])
+  }, [state.account])
 
-  // Auto-connect if previously connected
   useEffect(() => {
-    const autoConnect = async () => {
+    const auto = async () => {
       if (typeof window !== "undefined" && window.ethereum) {
-        // Check if we're in an iframe
-        const isInIframe = window.self !== window.top
-        if (isInIframe) {
-          console.warn("Auto-connect disabled in iframe for security reasons")
-          return
-        }
-
+        if (window.self !== window.top) return
         try {
-          // Prioritize MetaMask for auto-connect
           let provider = window.ethereum
           if (window.ethereum.providers) {
-            const metaMaskProvider = window.ethereum.providers.find((p: any) => p.isMetaMask)
-            if (metaMaskProvider) {
-              provider = metaMaskProvider
-            }
+            const mm = window.ethereum.providers.find((p: any) => p.isMetaMask)
+            if (mm) provider = mm
           }
-
           const accounts = await provider.request({ method: "eth_accounts" })
           if (accounts.length > 0) {
             const ethersProvider = new ethers.BrowserProvider(provider)
             const signer = await ethersProvider.getSigner()
-            const network = await ethersProvider.getNetwork()
-
+            const net = await ethersProvider.getNetwork()
             dispatch({
-              type: "SET_CONNECTED",
-              payload: {
-                address: accounts[0],
-                chainId: Number(network.chainId),
-                provider: ethersProvider,
-                signer,
-              },
+              type: "CONNECTED",
+              payload: { account: accounts[0], chain: Number(net.chainId), provider: ethersProvider, signer },
             })
           }
-        } catch (error) {
-          console.error("Auto-connect failed:", error)
-        }
+        } catch {}
       }
     }
-
-    autoConnect()
+    auto()
   }, [])
 
-  const value: WalletContextType = {
-    state,
-    dispatch,
-  }
+  const value: SessionContextType = { state, dispatch }
 
-  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
 
-export const WalletProvider = WalletProviderComponent
+export const SessionProvider = ProviderComponent
 
-export const useWalletContext = (): WalletContextType => {
-  const context = useContext(WalletContext)
-  if (!context) {
-    throw new Error("useWalletContext must be used within a WalletProvider")
-  }
-  return context
+export const useSession = (): SessionContextType => {
+  const ctx = useContext(SessionContext)
+  if (!ctx) throw new Error("useSession must be inside a SessionProvider")
+  return ctx
 }
