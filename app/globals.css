@@ -4,7 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Updated to black background and white text theme */
+  
   --background: oklch(0 0 0);
   --foreground: oklch(1 0 0);
   --card: oklch(0.1 0 0);
@@ -41,7 +41,6 @@
 }
 
 .dark {
-  /* Enhanced dark mode for wallet interface */
   --background: oklch(0 0 0);
   --foreground: oklch(1 0 0);
   --card: oklch(0.1 0 0);
