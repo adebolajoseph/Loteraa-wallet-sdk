@@ -1,6 +1,6 @@
 import { ethers } from "ethers"
 
-export interface WalletProvider {
+export type WalletProvider = {
   isMetaMask?: boolean
   isWalletConnect?: boolean
   isTrust?: boolean
@@ -9,14 +9,14 @@ export interface WalletProvider {
   removeListener: (event: string, handler: (...args: any[]) => void) => void
 }
 
-export interface WalletInfo {
+export type WalletProfile = {
   address: string
   balance: string
   chainId: number
   isConnected: boolean
 }
 
-export interface TransactionRequest {
+export type TxRequest = {
   to: string
   value: string
   gasLimit?: string
@@ -24,218 +24,262 @@ export interface TransactionRequest {
   data?: string
 }
 
-export interface TransactionResult {
+export type TxResult = {
   hash: string
   status: "pending" | "confirmed" | "failed"
   gasUsed?: string
   blockNumber?: number
 }
 
-export class WalletError extends Error {
-  constructor(
-    message: string,
-    public code: string,
-    public originalError?: any,
+export class WalletException extends Error {
+  code: string
+  original?: any
+  constructor(msg: string, code: string, original?: any) {
+    super(msg)
+    this.code = code
+    this.original = original
+    this.name = "WalletException"
+  }
+}
+
+export const getAvailableProviders = (): WalletProvider[] => {
+  const detected: WalletProvider[] = []
+  if (typeof window === "undefined") return detected
+
+  const insideFrame = window.self !== window.top
+
+  if (window.ethereum?.isMetaMask && !insideFrame) {
+    detected.push(window.ethereum)
+  }
+
+  if (window.ethereum?.providers) {
+    const valid = window.ethereum.providers.filter((p: any) => {
+      if (insideFrame && p.isTrust) return false
+      if (p.isMetaMask) return true
+      return !insideFrame
+    })
+
+    valid.sort((a: any, b: any) => {
+      if (a.isMetaMask && !b.isMetaMask) return -1
+      if (!a.isMetaMask && b.isMetaMask) return 1
+      return 0
+    })
+
+    detected.push(...valid)
+  }
+
+  if (
+    detected.length === 0 &&
+    window.ethereum &&
+    !window.ethereum.isMetaMask &&
+    (!window.ethereum.isTrust || !insideFrame)
   ) {
-    super(message)
-    this.name = "WalletError"
+    detected.push(window.ethereum)
+  }
+
+  return detected
+}
+
+export const verifyAddress = (addr: string): boolean => {
+
+export type WalletProvider = {
+  isMetaMask?: boolean
+  isWalletConnect?: boolean
+  isTrust?: boolean
+  request: (args: { method: string; params?: any[] }) => Promise<any>
+  on: (event: string, handler: (...args: any[]) => void) => void
+  removeListener: (event: string, handler: (...args: any[]) => void) => void
+}
+
+export type WalletProfile = {
+  address: string
+  balance: string
+  chainId: number
+  isConnected: boolean
+}
+
+export type TxRequest = {
+  to: string
+  value: string
+  gasLimit?: string
+  gasPrice?: string
+  data?: string
+}
+
+export type TxResult = {
+  hash: string
+  status: "pending" | "confirmed" | "failed"
+  gasUsed?: string
+  blockNumber?: number
+}
+
+export class WalletException extends Error {
+  code: string
+  original?: any
+  constructor(msg: string, code: string, original?: any) {
+    super(msg)
+    this.code = code
+    this.original = original
+    this.name = "WalletException"
   }
 }
 
-// Detect available Ethereum providers
-export const detectProviders = (): WalletProvider[] => {
-  const providers: WalletProvider[] = []
+export const getAvailableProviders = (): WalletProvider[] => {
+  const detected: WalletProvider[] = []
+  if (typeof window === "undefined") return detected
 
-  if (typeof window !== "undefined") {
-    // Check if we're in an iframe (Trust Wallet blocks iframe connections)
-    const isInIframe = window.self !== window.top
+  const insideFrame = window.self !== window.top
 
-    // First priority: MetaMask
-    if (window.ethereum?.isMetaMask && !isInIframe) {
-      providers.push(window.ethereum)
-    }
-
-    // Handle multiple providers (like when both MetaMask and Trust Wallet are installed)
-    if (window.ethereum?.providers) {
-      // Filter out Trust Wallet if in iframe, prioritize MetaMask
-      const filteredProviders = window.ethereum.providers.filter((provider: any) => {
-        // Skip Trust Wallet if in iframe
-        if (isInIframe && provider.isTrust) {
-          return false
-        }
-        // Prioritize MetaMask
-        if (provider.isMetaMask) {
-          return true
-        }
-        // Allow other providers if not in iframe
-        return !isInIframe
-      })
-
-      // Sort to put MetaMask first
-      filteredProviders.sort((a: any, b: any) => {
-        if (a.isMetaMask && !b.isMetaMask) return -1
-        if (!a.isMetaMask && b.isMetaMask) return 1
-        return 0
-      })
-
-      providers.push(...filteredProviders)
-    }
-
-    // Fallback: if no MetaMask found and not in iframe, try the main ethereum provider
-    if (providers.length === 0 && window.ethereum && !window.ethereum.isMetaMask && !isInIframe) {
-      // Only add if it's not Trust Wallet or if we're not in iframe
-      if (!window.ethereum.isTrust || !isInIframe) {
-        providers.push(window.ethereum)
-      }
-    }
+  if (window.ethereum?.isMetaMask && !insideFrame) {
+    detected.push(window.ethereum)
   }
 
-  return providers
+  if (window.ethereum?.providers) {
+    const valid = window.ethereum.providers.filter((p: any) => {
+      if (insideFrame && p.isTrust) return false
+      if (p.isMetaMask) return true
+      return !insideFrame
+    })
+
+    valid.sort((a: any, b: any) => {
+      if (a.isMetaMask && !b.isMetaMask) return -1
+      if (!a.isMetaMask && b.isMetaMask) return 1
+      return 0
+    })
+
+    detected.push(...valid)
+  }
+
+  if (
+    detected.length === 0 &&
+    window.ethereum &&
+    !window.ethereum.isMetaMask &&
+    (!window.ethereum.isTrust || !insideFrame)
+  ) {
+    detected.push(window.ethereum)
+  }
+
+  return detected
 }
 
-// Validate Ethereum address
-export const isValidAddress = (address: string): boolean => {
+export const verifyAddress = (addr: string): boolean => {
   try {
-    return ethers.isAddress(address)
+    return ethers.isAddress(addr)
   } catch {
     return false
   }
 }
 
-// Format balance for display
-export const formatBalance = (balance: string, decimals = 18): string => {
+export const displayBalance = (bal: string, decimals = 18): string => {
   try {
-    return ethers.formatUnits(balance, decimals)
+    return ethers.formatUnits(bal, decimals)
   } catch {
     return "0"
   }
 }
 
-// Parse amount to wei
-export const parseAmount = (amount: string, decimals = 18): string => {
+export const toWeiAmount = (amount: string, decimals = 18): string => {
   try {
     return ethers.parseUnits(amount, decimals).toString()
   } catch {
-    throw new WalletError("Invalid amount format", "INVALID_AMOUNT")
+    throw new WalletException("Invalid numeric value", "INVALID_AMOUNT")
   }
 }
 
-// Generate new wallet
-export const generateWallet = (): { address: string; privateKey: string; mnemonic: string } => {
-  const wallet = ethers.Wallet.createRandom()
+export const createRandomWallet = (): {
+  address: string
+  privateKey: string
+  mnemonic: string
+} => {
+  const w = ethers.Wallet.createRandom()
   return {
-    address: wallet.address,
-    privateKey: wallet.privateKey,
-    mnemonic: wallet.mnemonic?.phrase || "",
+    address: w.address,
+    privateKey: w.privateKey,
+    mnemonic: w.mnemonic?.phrase || "",
   }
 }
 
-// Estimate gas for transaction
-export const estimateGas = async (provider: ethers.Provider, transaction: TransactionRequest): Promise<string> => {
+export const calcGas = async (
+  provider: ethers.Provider,
+  tx: TxRequest
+): Promise<string> => {
   try {
-    const gasEstimate = await provider.estimateGas({
-      to: transaction.to,
-      value: transaction.value,
-      data: transaction.data,
+    const g = await provider.estimateGas({
+      to: tx.to,
+      value: tx.value,
+      data: tx.data,
     })
-    return gasEstimate.toString()
-  } catch (error) {
-    throw new WalletError("Gas estimation failed", "GAS_ESTIMATION_FAILED", error)
+    return g.toString()
+  } catch (e) {
+    throw new WalletException("Unable to estimate gas", "GAS_ESTIMATION_FAILED", e)
   }
 }
 
-// Get current gas price
-export const getGasPrice = async (provider: ethers.Provider): Promise<string> => {
+export const fetchGasPrice = async (provider: ethers.Provider): Promise<string> => {
   try {
-    const feeData = await provider.getFeeData()
-    return feeData.gasPrice?.toString() || "0"
-  } catch (error) {
-    throw new WalletError("Failed to get gas price", "GAS_PRICE_FAILED", error)
+    const data = await provider.getFeeData()
+    return data.gasPrice?.toString() || "0"
+  } catch (e) {
+    throw new WalletException("Gas price fetch failed", "GAS_PRICE_FAILED", e)
   }
 }
 
-// Format transaction hash for display
-export const formatTxHash = (hash: string, length = 10): string => {
-  if (hash.length <= length) return hash
-  return `${hash.slice(0, length / 2)}...${hash.slice(-length / 2)}`
+export const shortHash = (hash: string, size = 10): string => {
+  if (hash.length <= size) return hash
+  return `${hash.slice(0, size / 2)}...${hash.slice(-size / 2)}`
 }
 
-// Convert wei to ETH
-export const weiToEth = (wei: string): string => {
-  return ethers.formatEther(wei)
-}
+export const fromWei = (wei: string): string => ethers.formatEther(wei)
 
-// Convert ETH to wei
-export const ethToWei = (eth: string): string => {
-  return ethers.parseEther(eth).toString()
-}
+export const toWei = (eth: string): string => ethers.parseEther(eth).toString()
 
-// Get network name from chain ID
-export const getNetworkName = (chainId: number): string => {
-  const networks: Record<number, string> = {
+export const chainLabel = (id: number): string => {
+  const map: Record<number, string> = {
     1: "Ethereum Mainnet",
-    5: "Goerli Testnet",
-    11155111: "Sepolia Testnet",
-    137: "Polygon Mainnet",
-    80001: "Polygon Mumbai",
-    56: "BSC Mainnet",
+    5: "Goerli",
+    11155111: "Sepolia",
+    137: "Polygon",
+    80001: "Mumbai",
+    56: "BSC",
     97: "BSC Testnet",
   }
-
-  return networks[chainId] || `Chain ID: ${chainId}`
+  return map[id] || `Chain ${id}`
 }
 
-// Check if transaction is pending
-export const isTransactionPending = (status: string): boolean => {
-  return status === "pending"
-}
+export const txIsPending = (status: string): boolean => status === "pending"
 
-// Validate private key
-export const isValidPrivateKey = (privateKey: string): boolean => {
+export const verifyPrivateKey = (key: string): boolean => {
   try {
-    new ethers.Wallet(privateKey)
+    new ethers.Wallet(key)
     return true
   } catch {
     return false
   }
 }
 
-// Create wallet from private key
-export const createWalletFromPrivateKey = (privateKey: string): ethers.Wallet => {
+export const walletFromKey = (key: string): ethers.Wallet => {
   try {
-    return new ethers.Wallet(privateKey)
-  } catch (error) {
-    throw new WalletError("Invalid private key", "INVALID_PRIVATE_KEY", error)
+    return new ethers.Wallet(key)
+  } catch (e) {
+    throw new WalletException("Bad private key", "INVALID_PRIVATE_KEY", e)
   }
 }
 
-export const isMetaMaskAvailable = (): boolean => {
+export const hasMetaMask = (): boolean => {
   if (typeof window === "undefined") return false
-
-  // Check if we're in iframe
-  const isInIframe = window.self !== window.top
-  if (isInIframe) return false
-
-  // Check for MetaMask specifically
+  const insideFrame = window.self !== window.top
+  if (insideFrame) return false
   if (window.ethereum?.isMetaMask) return true
-
-  // Check in providers array
   if (window.ethereum?.providers) {
-    return window.ethereum.providers.some((provider: any) => provider.isMetaMask)
+    return window.ethereum.providers.some((p: any) => p.isMetaMask)
   }
-
   return false
 }
 
-export const getPreferredProvider = (): WalletProvider | null => {
-  const providers = detectProviders()
-
-  // Return MetaMask if available
-  const metaMask = providers.find((p) => p.isMetaMask)
-  if (metaMask) return metaMask
-
-  // Return first available provider
-  return providers[0] || null
+export const pickProvider = (): WalletProvider | null => {
+  const list = getAvailableProviders()
+  const mm = list.find((p) => p.isMetaMask)
+  return mm || list[0] || null
 }
 
 declare global {
@@ -246,4 +290,4 @@ declare global {
       isTrust?: boolean
     }
   }
-}
+      }
