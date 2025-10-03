@@ -1,8 +1,8 @@
-import { WalletInterface } from "@/components/wallet-interface"
+import { WalletInterface } from '@/components/wallet-interface'
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-background">
+    <main className="bg-background min-h-screen">
       <WalletInterface />
     </main>
   )
