@@ -16,93 +16,74 @@ import {
   type TransactionResult,
 } from "@/utils/walletUtils"
 
-export interface SendTransactionParams {
+export interface TxParams {
   to: string
   amount: string
   currency: "ETH" | "LOT"
   gasLimit?: string
 }
 
-export interface CreateWalletResult {
+export interface WalletInitResult {
   address: string
   privateKey: string
   mnemonic: string
   warning: string
 }
 
-export interface WalletSDKHook {
-  // Connection methods
-  connectWallet: () => Promise<void>
-  disconnectWallet: () => void
-  createNewWallet: () => CreateWalletResult
+export interface LoteraHook {
+  connect: () => Promise<void>
+  disconnect: () => void
+  createWallet: () => WalletInitResult
 
-  // Balance methods
-  fetchBalance: () => Promise<void>
-  getEthBalance: () => string
-  getLotBalance: () => string
-  getPortfolioValue: () => string
+  loadBalance: () => Promise<void>
+  ethBalance: () => string
+  lotBalance: () => string
+  portfolioValue: () => string
 
-  // Transaction methods
-  sendTransaction: (params: SendTransactionParams) => Promise<string>
-  estimateTransactionGas: (params: SendTransactionParams) => Promise<string>
-  getTransactionHistory: () => TransactionResult[]
+  transfer: (params: TxParams) => Promise<string>
+  estimateGasCost: (params: TxParams) => Promise<string>
+  history: () => TransactionResult[]
 
-  // Provider detection
-  getAvailableProviders: () => any[]
-  isMetaMaskAvailable: () => boolean
+  providers: () => any[]
+  hasMetaMask: () => boolean
 
-  // State getters
-  isConnected: () => boolean
-  isConnecting: () => boolean
-  getAddress: () => string | null
-  getChainId: () => number | null
-  getError: () => string | null
-  isLoadingBalance: () => boolean
-  isSendingTransaction: () => boolean
+  connected: () => boolean
+  connecting: () => boolean
+  walletAddress: () => string | null
+  chain: () => number | null
+  error: () => string | null
+  loadingBalance: () => boolean
+  sendingTx: () => boolean
 
-  // Utility methods
-  validateAddress: (address: string) => boolean
-  formatBalance: (balance: string) => string
-  getNetworkName: () => string
+  checkAddress: (address: string) => boolean
+  format: (balance: string) => string
+  network: () => string
 }
 
-export const useWalletSDK = (): WalletSDKHook => {
+export const useLotera = (): LoteraHook => {
   const { state, dispatch } = useWalletContext()
 
-  // Connect to wallet
-  const connectWallet = useCallback(async (): Promise<void> => {
+  const connect = useCallback(async () => {
     try {
       dispatch({ type: "SET_CONNECTING", payload: true })
       dispatch({ type: "SET_ERROR", payload: null })
 
-      // Check if we're in an iframe
-      const isInIframe = typeof window !== "undefined" && window.self !== window.top
-      if (isInIframe) {
-        throw new WalletError(
-          "Wallet connection is not supported in embedded frames. Please open this app in a new tab.",
-          "IFRAME_BLOCKED",
-        )
+      if (typeof window !== "undefined" && window.self !== window.top) {
+        throw new WalletError("Wallet not allowed in iframe", "IFRAME_BLOCKED")
       }
 
-      // Get preferred provider (MetaMask first)
       const provider = getPreferredProvider()
-
       if (!provider) {
-        throw new WalletError(
-          "No compatible Ethereum wallet found. Please install MetaMask or another Web3 wallet.",
-          "NO_WALLET",
-        )
+        throw new WalletError("No wallet detected", "NO_WALLET")
       }
 
-      // Check if it's Trust Wallet and warn user
       if ((provider as any).isTrust) {
-        console.warn("Trust Wallet detected. For best experience, please use MetaMask.")
+        console.warn("Trust Wallet detected, MetaMask recommended")
       }
 
       const accounts = await provider.request({ method: "eth_requestAccounts" })
-
-      if (accounts.length === 0) {
-        throw new WalletError("No accounts found", "NO_ACCOUNTS")
+      if (!accounts.length) {
+        throw new WalletError("No accounts available", "NO_ACCOUNTS")
       }
 
       const ethersProvider = new ethers.BrowserProvider(provider)
@@ -118,120 +99,79 @@ export const useWalletSDK = (): WalletSDKHook => {
           signer,
         },
       })
-    } catch (error: any) {
-      let errorMessage = "Failed to connect wallet"
-
-      if (error.code === 4001 || error.code === "ACTION_REJECTED") {
-        // User rejected - don't show error, just stop connecting
+    } catch (err: any) {
+      let msg = "Failed to connect"
+      if (err.code === 4001 || err.code === "ACTION_REJECTED") {
         dispatch({ type: "SET_CONNECTING", payload: false })
         return
-      } else if (error instanceof WalletError) {
-        errorMessage = error.message
-      } else if (error.message?.includes("frame")) {
-        errorMessage = "Wallet connection blocked. Please open this app in a new tab instead of an embedded frame."
-      } else if (error.message) {
-        errorMessage = error.message
+      } else if (err instanceof WalletError) {
+        msg = err.message
+      } else if (err.message?.includes("frame")) {
+        msg = "Wallet blocked in embedded frame"
+      } else if (err.message) {
+        msg = err.message
       }
-
-      dispatch({ type: "SET_ERROR", payload: errorMessage })
+      dispatch({ type: "SET_ERROR", payload: msg })
       dispatch({ type: "SET_CONNECTING", payload: false })
     }
   }, [dispatch])
 
-  // Disconnect wallet
-  const disconnectWallet = useCallback((): void => {
+  const disconnect = useCallback(() => {
     dispatch({ type: "SET_DISCONNECTED" })
   }, [dispatch])
 
-  // Create new wallet
-  const createNewWallet = useCallback((): CreateWalletResult => {
+  const createWallet = useCallback((): WalletInitResult => {
     const wallet = generateWallet()
     return {
       ...wallet,
-      warning:
-        "WARNING: Store your private key and mnemonic phrase securely. Never share them with anyone. Loss of these credentials means permanent loss of access to your wallet.",
+      warning: "Keep your keys and mnemonic safe. Losing them means losing access permanently.",
     }
   }, [])
 
-  // Fetch balances
-  const fetchBalance = useCallback(async (): Promise<void> => {
+  const loadBalance = useCallback(async () => {
     if (!state.provider || !state.address) return
-
     try {
       dispatch({ type: "SET_LOADING_BALANCE", payload: true })
-
-      const balance = await state.provider.getBalance(state.address)
-      const ethBalance = weiToEth(balance.toString())
-
-      // Mock LOT balance for now (would need ERC-20 contract integration)
-      const lotBalance = "0"
-
-      // Mock portfolio value calculation (would integrate with price APIs)
-      const ethPrice = 2000 // Mock ETH price
-      const portfolioValue = (Number.parseFloat(ethBalance) * ethPrice).toFixed(2)
-
+      const bal = await state.provider.getBalance(state.address)
+      const ethBal = weiToEth(bal.toString())
+      const lotBal = "0"
+      const ethPrice = 2000
+      const value = (Number.parseFloat(ethBal) * ethPrice).toFixed(2)
       dispatch({
         type: "SET_BALANCE",
-        payload: {
-          ethBalance,
-          lotBalance,
-          portfolioValue,
-        },
+        payload: { ethBalance: ethBal, lotBalance: lotBal, portfolioValue: value },
       })
-    } catch (error) {
-      console.error("Failed to fetch balance:", error)
-      dispatch({ type: "SET_ERROR", payload: "Failed to fetch balance" })
+    } catch {
+      dispatch({ type: "SET_ERROR", payload: "Failed to load balance" })
       dispatch({ type: "SET_LOADING_BALANCE", payload: false })
     }
   }, [state.provider, state.address, dispatch])
 
-  // Send transaction
-  const sendTransaction = useCallback(
-    async (params: SendTransactionParams): Promise<string> => {
+  const transfer = useCallback(
+    async (params: TxParams) => {
       if (!state.signer || !state.provider) {
-        throw new WalletError("Wallet not connected", "NOT_CONNECTED")
+        throw new WalletError("Not connected", "NOT_CONNECTED")
       }
-
       if (!isValidAddress(params.to)) {
-        throw new WalletError("Invalid recipient address", "INVALID_ADDRESS")
+        throw new WalletError("Invalid address", "INVALID_ADDRESS")
       }
-
       try {
         dispatch({ type: "SET_SENDING_TRANSACTION", payload: true })
         dispatch({ type: "SET_ERROR", payload: null })
-
         const value = ethToWei(params.amount)
-
-        // Check balance
         const balance = await state.provider.getBalance(state.address!)
         if (balance < BigInt(value)) {
-          throw new WalletError("Insufficient balance", "INSUFFICIENT_FUNDS")
+          throw new WalletError("Insufficient funds", "INSUFFICIENT_FUNDS")
         }
-
-        // Estimate gas
-        const gasEstimate = await estimateGas(state.provider, {
-          to: params.to,
-          value,
-        })
-
-        // Send transaction
+        const gasEstimate = await estimateGas(state.provider, { to: params.to, value })
         const tx = await state.signer.sendTransaction({
           to: params.to,
           value,
           gasLimit: params.gasLimit || gasEstimate,
         })
-
-        // Add to pending transactions
         dispatch({ type: "ADD_PENDING_TRANSACTION", payload: tx.hash })
-
-        // Add to transaction history
-        const transaction: TransactionResult = {
-          hash: tx.hash,
-          status: "pending",
-        }
-        dispatch({ type: "ADD_TRANSACTION", payload: transaction })
-
-        // Wait for confirmation
+        const record: TransactionResult = { hash: tx.hash, status: "pending" }
+        dispatch({ type: "ADD_TRANSACTION", payload: record })
         tx.wait()
           .then((receipt) => {
             dispatch({ type: "REMOVE_PENDING_TRANSACTION", payload: tx.hash })
@@ -244,110 +184,82 @@ export const useWalletSDK = (): WalletSDKHook => {
                 blockNumber: receipt?.blockNumber,
               },
             })
-
-            // Refresh balance after successful transaction
             if (receipt?.status === 1) {
-              fetchBalance()
+              loadBalance()
             }
           })
-          .catch((error) => {
+          .catch(() => {
             dispatch({ type: "REMOVE_PENDING_TRANSACTION", payload: tx.hash })
             dispatch({
               type: "UPDATE_TRANSACTION",
-              payload: {
-                hash: tx.hash,
-                status: "failed",
-              },
+              payload: { hash: tx.hash, status: "failed" },
             })
           })
-
         return tx.hash
-      } catch (error: any) {
-        let errorMessage = "Transaction failed"
-
-        if (error instanceof WalletError) {
-          errorMessage = error.message
-        } else if (error.code === 4001) {
-          errorMessage = "Transaction rejected by user"
-        } else if (error.message) {
-          errorMessage = error.message
+      } catch (err: any) {
+        let msg = "Transaction failed"
+        if (err instanceof WalletError) {
+          msg = err.message
+        } else if (err.code === 4001) {
+          msg = "User rejected transaction"
+        } else if (err.message) {
+          msg = err.message
         }
-
-        dispatch({ type: "SET_ERROR", payload: errorMessage })
-        throw new WalletError(errorMessage, "TRANSACTION_FAILED", error)
+        dispatch({ type: "SET_ERROR", payload: msg })
+        throw new WalletError(msg, "TRANSACTION_FAILED", err)
       } finally {
         dispatch({ type: "SET_SENDING_TRANSACTION", payload: false })
       }
     },
-    [state.signer, state.provider, state.address, dispatch, fetchBalance],
+    [state.signer, state.provider, state.address, dispatch, loadBalance],
   )
 
-  // Estimate transaction gas
-  const estimateTransactionGas = useCallback(
-    async (params: SendTransactionParams): Promise<string> => {
-      if (!state.provider) {
-        throw new WalletError("Wallet not connected", "NOT_CONNECTED")
-      }
-
+  const estimateGasCost = useCallback(
+    async (params: TxParams): Promise<string> => {
+      if (!state.provider) throw new WalletError("Not connected", "NOT_CONNECTED")
       const value = ethToWei(params.amount)
-      return await estimateGas(state.provider, {
-        to: params.to,
-        value,
-      })
+      return await estimateGas(state.provider, { to: params.to, value })
     },
     [state.provider],
   )
 
-  // Auto-fetch balance when connected
   useEffect(() => {
     if (state.isConnected && state.address) {
-      fetchBalance()
+      loadBalance()
     }
-  }, [state.isConnected, state.address, fetchBalance])
+  }, [state.isConnected, state.address, loadBalance])
 
-  // Return SDK interface
   return {
-    // Connection methods
-    connectWallet,
-    disconnectWallet,
-    createNewWallet,
-
-    // Balance methods
-    fetchBalance,
-    getEthBalance: () => state.ethBalance,
-    getLotBalance: () => state.lotBalance,
-    getPortfolioValue: () => state.portfolioValue,
-
-    // Transaction methods
-    sendTransaction,
-    estimateTransactionGas,
-    getTransactionHistory: () => state.transactions,
-
-    // Provider detection
-    getAvailableProviders: detectProviders,
-    isMetaMaskAvailable,
-
-    // State getters
-    isConnected: () => state.isConnected,
-    isConnecting: () => state.isConnecting,
-    getAddress: () => state.address,
-    getChainId: () => state.chainId,
-    getError: () => state.error,
-    isLoadingBalance: () => state.isLoadingBalance,
-    isSendingTransaction: () => state.isSendingTransaction,
-
-    // Utility methods
-    validateAddress: isValidAddress,
-    formatBalance: (balance: string) => Number.parseFloat(balance).toFixed(4),
-    getNetworkName: () => {
-      const networks: Record<number, string> = {
+    connect,
+    disconnect,
+    createWallet,
+    loadBalance,
+    ethBalance: () => state.ethBalance,
+    lotBalance: () => state.lotBalance,
+    portfolioValue: () => state.portfolioValue,
+    transfer,
+    estimateGasCost,
+    history: () => state.transactions,
+    providers: detectProviders,
+    hasMetaMask: isMetaMaskAvailable,
+    connected: () => state.isConnected,
+    connecting: () => state.isConnecting,
+    walletAddress: () => state.address,
+    chain: () => state.chainId,
+    error: () => state.error,
+    loadingBalance: () => state.isLoadingBalance,
+    sendingTx: () => state.isSendingTransaction,
+    checkAddress: isValidAddress,
+    format: (bal: string) => Number.parseFloat(bal).toFixed(4),
+    network: () => {
+      const nets: Record<number, string> = {
         1: "Ethereum Mainnet",
-        5: "Goerli Testnet",
-        11155111: "Sepolia Testnet",
+        5: "Goerli",
+        11155111: "Sepolia",
       }
-      return networks[state.chainId || 1] || `Chain ID: ${state.chainId}`
+      return nets[state.chainId || 1] || `Chain ID: ${state.chainId}`
     },
   }
 }
 
-export default useWalletSDK
+export default useLotera
